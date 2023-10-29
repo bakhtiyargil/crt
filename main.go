@@ -20,40 +20,29 @@ func keytoolFunc(url string, cacertpath string, system bool) {
 	}
 
 	conn, err := tls.Dial("tcp", url, conf)
-	if err != nil {
-		fmt.Println(`Error in Dial!`, err)
-		return
-	}
+	errAndExit("Error in dial: %v\n", err)
+
 	defer func(conn *tls.Conn) {
 		err := conn.Close()
-		if err != nil {
-			fmt.Println("Error in connection closing!", err)
-		}
+		errAndExit("Error in connection closing: %v\n", err)
 	}(conn)
 
 	rootCAs, err := x509.SystemCertPool()
-	if err != nil {
-		fmt.Printf("Error getting system certificate pool: %v\n", err)
-	}
+	errAndExit("Error getting system certificate pool: %v\n", err)
 
 	certs := conn.ConnectionState().PeerCertificates
+
 	for i, cert := range certs {
 		certFile, err := os.CreateTemp("", "cert")
-		if err != nil {
-			fmt.Printf("Error creating temp file: %v\n", err)
-			return
-		}
+		errAndExit("Error creating temp file: %v\n", err)
+
 		defer func(certFile *os.File) {
 			err := certFile.Close()
-			if err != nil {
-
-			}
+			errAndExit("Error in file closing: %v\n", err)
 		}(certFile)
 		defer func(name string) {
 			err := os.Remove(name)
-			if err != nil {
-
-			}
+			errAndExit("Error in file removing: %v\n", err)
 		}(certFile.Name())
 
 		if system {
@@ -61,21 +50,21 @@ func keytoolFunc(url string, cacertpath string, system bool) {
 		}
 
 		err = pem.Encode(certFile, &pem.Block{Type: "CERTIFICATE", Bytes: cert.Raw})
-		if err != nil {
-			fmt.Printf("Error writing certificate to file: %v\n", err)
-			return
-		}
+		errAndExit("Error writing certificate to file: %v\n", err)
 
 		cmd := exec.Command("sudo", "keytool", "-import", "-alias", "CRT_"+url+strconv.Itoa(i),
 			"-keystore", cacertpath,
 			"-file", certFile.Name(), "-storepass", "changeit", "-noprompt")
 		err = cmd.Run()
-
-		if err != nil {
-			fmt.Printf("Error running keytool: %v\n", err)
-			return
-		}
+		errAndExit("Error running keytool: %v\n", err)
 	}
 	fmt.Printf("Certificates added successfully!")
 	return
+}
+
+func errAndExit(msg string, err error) {
+	if err != nil {
+		fmt.Printf(msg, err)
+		os.Exit(1)
+	}
 }
