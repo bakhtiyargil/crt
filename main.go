@@ -36,14 +36,8 @@ func keytoolFunc(url string, cacertpath string, system bool) {
 		certFile, err := os.CreateTemp("", "cert")
 		errAndExit("Error creating temp file: %v\n", err)
 
-		defer func(certFile *os.File) {
-			err := certFile.Close()
-			errAndExit("Error in file closing: %v\n", err)
-		}(certFile)
-		defer func(name string) {
-			err := os.Remove(name)
-			errAndExit("Error in file removing: %v\n", err)
-		}(certFile.Name())
+		defer os.Remove(certFile.Name())
+		defer certFile.Close()
 
 		if system {
 			rootCAs.AddCert(cert)
