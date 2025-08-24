@@ -3,21 +3,19 @@ package cmd
 import (
 	"crypto/tls"
 	"crypto/x509"
-	"encoding/pem"
 	"fmt"
 	"github.com/spf13/cobra"
 	"os"
-	"os/exec"
-	"strconv"
+	"software.sslmate.com/src/go-pkcs12"
 )
 
 const (
 	UrlFlag             = "url"
 	SystemFlag          = "system"
 	JavaHomeFlag        = "java-home"
-	CacertsFlag         = "cacertspath"
+	CacertsPathFlag     = "cacertspath"
+	CacertsPassFlag     = "cacertspass"
 	JavaHomeCacertsPath = "$JAVA_HOME/lib/security/cacerts"
-	EncodeType          = "CERTIFICATE"
 )
 
 var importCmd = &cobra.Command{
@@ -36,8 +34,11 @@ func addFlags() {
 	importCmd.Flags().StringP(UrlFlag, "u", "",
 		"Specify the URL from which you want to export certificates. Example: [\"vault.kapitalbank.az:443\"] -> [host]:[port]")
 
-	importCmd.Flags().StringP(CacertsFlag, "c", "",
+	importCmd.Flags().StringP(CacertsPathFlag, "c", "",
 		"Specify the path to your cacerts file. Example: [\"$JAVA_HOME/lib/security/cacerts\"]")
+
+	importCmd.Flags().Bool(CacertsPassFlag, false,
+		"Specify the password for your cacerts file.")
 
 	importCmd.Flags().Bool(JavaHomeFlag, false,
 		"Use the default $JAVA_HOME path to specify the cacerts file.")
@@ -51,9 +52,15 @@ func importFunction() func(cmd *cobra.Command, args []string) {
 		url, _ := cmd.Flags().GetString(UrlFlag)
 		system, _ := cmd.Flags().GetBool(SystemFlag)
 		javaHome, _ := cmd.Flags().GetBool(JavaHomeFlag)
-		cacertpath, _ := cmd.Flags().GetString(CacertsFlag)
+		cacertpath, _ := cmd.Flags().GetString(CacertsPathFlag)
+		cacertpass, _ := cmd.Flags().GetString(CacertsPassFlag)
+
 		if len(url) == 0 {
 			fmt.Println("URL is required. Get help with -h or --help.")
+			return
+		}
+		if len(cacertpass) == 0 {
+			fmt.Println("Password is required. Get help with -h or --help.")
 			return
 		}
 		if javaHome {
@@ -68,55 +75,69 @@ func importFunction() func(cmd *cobra.Command, args []string) {
 			return
 		}
 
-		addCertificate(url, cacertpath, system)
+		AddCertificate(url, cacertpath, system, cacertpass)
 	}
 }
 
-func addCertificate(url string, cacertpath string, system bool) {
-	conf := &tls.Config{
-		InsecureSkipVerify: true,
+func AddCertificate(hostPort string, cacertpath string, system bool, password string) {
+	conf := &tls.Config{}
+	conn, err := tls.Dial("tcp", hostPort, conf)
+	errAndExit("error in dial TCP: %v\n", err)
+	defer func() {
+		if cErr := conn.Close(); cErr != nil {
+			errAndExit("warning: error closing connection: %v\n", cErr)
+		}
+	}()
+	certs := conn.ConnectionState().PeerCertificates
+
+	data, err := os.ReadFile(cacertpath)
+	errAndExit("error reading truststore: %v\n", err)
+
+	if password == "changeit" {
+		password = ""
+	}
+	existingCerts, err := pkcs12.DecodeTrustStore(data, password)
+	if err != nil {
+		errAndExit("cannot decode PKCS12 truststore: %v\n", err)
 	}
 
-	conn, err := tls.Dial("tcp", url, conf)
-	errAndExit("Error in dial TCP: %v\n", err)
+	fmt.Printf("Existing truststore has %d certs\n", len(existingCerts))
 
-	defer func(conn *tls.Conn) {
-		err := conn.Close()
-		errAndExit("Error in connection closing: %v\n", err)
-	}(conn)
-
-	certs := conn.ConnectionState().PeerCertificates
-	for i, cert := range certs {
-		tempCert, err := os.CreateTemp("", "cert")
-		errAndExit("Error creating temp file: %v\n", err)
-
-		defer tempCert.Close()
-		defer os.Remove(tempCert.Name())
-
-		if system {
-			rootCAs, err := x509.SystemCertPool()
-			errAndExit("Error getting system certificate pool: %v\n", err)
+	if system {
+		rootCAs, err := x509.SystemCertPool()
+		errAndExit("Error getting system certificate pool: %v\n", err)
+		for _, cert := range certs {
 			rootCAs.AddCert(cert)
 		}
-
-		err = pem.Encode(tempCert, &pem.Block{Type: EncodeType, Bytes: cert.Raw})
-		errAndExit("Error writing certificate to file: %v\n", err)
-
-		cmd := exec.Command("sudo",
-			"keytool",
-			"-import",
-			"-alias",
-			"CRT_"+url+strconv.Itoa(i),
-			"-keystore", cacertpath,
-			"-file", tempCert.Name(),
-			"-storepass",
-			"changeit",
-			"-noprompt")
-		err = cmd.Run()
-		errAndExit("Error running keytool: %v\n", err)
 	}
-	fmt.Printf("Certificates added successfully!")
-	return
+
+	for _, newCert := range certs {
+		if !containsCert(existingCerts, newCert) {
+			existingCerts = append(existingCerts, newCert)
+			fmt.Printf("Added certificate: %s\n", newCert.Subject.CommonName)
+		} else {
+			fmt.Printf("Certificate already exists: %s\n", newCert.Subject.CommonName)
+		}
+	}
+
+	newData, err := pkcs12.Passwordless.EncodeTrustStore(existingCerts, password)
+	if err != nil {
+		errAndExit("error encoding truststore: %v\n", err)
+	}
+
+	err = os.WriteFile(cacertpath, newData, 0644)
+	errAndExit("error writing truststore: %v\n", err)
+
+	fmt.Println("Certificates added successfully!")
+}
+
+func containsCert(certs []*x509.Certificate, newCert *x509.Certificate) bool {
+	for _, c := range certs {
+		if c.Equal(newCert) {
+			return true
+		}
+	}
+	return false
 }
 
 func errAndExit(msg string, err error) {
