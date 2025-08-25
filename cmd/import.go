@@ -37,7 +37,7 @@ func addFlags() {
 	importCmd.Flags().StringP(CacertsPathFlag, "c", "",
 		"Specify the path to your cacerts file. Example: [\"$JAVA_HOME/lib/security/cacerts\"]")
 
-	importCmd.Flags().Bool(CacertsPassFlag, false,
+	importCmd.Flags().StringP(CacertsPassFlag, "p", "",
 		"Specify the password for your cacerts file.")
 
 	importCmd.Flags().Bool(JavaHomeFlag, false,
