@@ -32,7 +32,7 @@ func init() {
 
 func addFlags() {
 	importCmd.Flags().StringP(UrlFlag, "u", "",
-		"Specify the URL from which you want to export certificates. Example: [\"vault.kapitalbank.az:443\"] -> [host]:[port]")
+		"Specify the URL from which you want to export certificates. Example: [\"github.com:443\"] -> [host]:[port]")
 
 	importCmd.Flags().StringP(CacertsPathFlag, "c", "",
 		"Specify the path to your cacerts file. Example: [\"$JAVA_HOME/lib/security/cacerts\"]")
