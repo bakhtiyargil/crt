@@ -7,6 +7,7 @@ import (
 	"github.com/spf13/cobra"
 	"os"
 	"software.sslmate.com/src/go-pkcs12"
+	"time"
 )
 
 const (
@@ -32,19 +33,19 @@ func init() {
 
 func addFlags() {
 	importCmd.Flags().StringP(UrlFlag, "u", "",
-		"Specify the URL from which you want to export certificates. Example: [\"github.com:443\"] -> [host]:[port]")
+		"specify the URL from which you want to export certificates. Example: [\"github.com:443\"] -> [host]:[port]")
 
 	importCmd.Flags().StringP(CacertsPathFlag, "c", "",
-		"Specify the path to your cacerts file. Example: [\"$JAVA_HOME/lib/security/cacerts\"]")
+		"specify the path to your cacerts file. Example: [\"$JAVA_HOME/lib/security/cacerts\"]")
 
 	importCmd.Flags().StringP(CacertsPassFlag, "p", "",
-		"Specify the password for your cacerts file.")
+		"specify the password for your cacerts file.")
 
 	importCmd.Flags().Bool(JavaHomeFlag, false,
-		"Use the default $JAVA_HOME path to specify the cacerts file.")
+		"use the default $JAVA_HOME path to specify the cacerts file.")
 
 	importCmd.Flags().Bool(SystemFlag, false,
-		"Use the default system truststore to store certificates.")
+		"use the default system truststore to store certificates.")
 }
 
 func importFunction() func(cmd *cobra.Command, args []string) {
@@ -111,13 +112,14 @@ func AddCertificate(hostPort string, cacertpath string, system bool, password st
 		}
 	}
 
-	for _, newCert := range certs {
+	for i, newCert := range certs {
 		if !containsCert(existingCerts, newCert) {
 			existingCerts = append(existingCerts, newCert)
 			fmt.Printf("Added certificate: %s\n", newCert.Subject.CommonName)
 		} else {
 			fmt.Printf("Certificate already exists: %s\n", newCert.Subject.CommonName)
 		}
+		loadingAnimation(i+1, len(certs))
 	}
 
 	newData, err := pkcs12.Passwordless.EncodeTrustStore(existingCerts, password)
@@ -128,7 +130,7 @@ func AddCertificate(hostPort string, cacertpath string, system bool, password st
 	err = os.WriteFile(cacertpath, newData, 0644)
 	errAndExit("error writing truststore: %v\n", err)
 
-	fmt.Println("Certificates added successfully!")
+	fmt.Println("\nCertificates added successfully!")
 }
 
 func containsCert(certs []*x509.Certificate, newCert *x509.Certificate) bool {
@@ -144,5 +146,30 @@ func errAndExit(msg string, err error) {
 	if err != nil {
 		fmt.Printf(msg, err)
 		os.Exit(1)
+	}
+}
+
+func loadingAnimation(jobsDone, jobsMax int) {
+	barMax := 50
+	var barCurrent int
+	barDiff := barMax / jobsMax
+	if jobsDone == jobsMax {
+		for i := 0; i < barMax; i++ {
+			fmt.Print("#")
+		}
+	} else {
+		barCurrent = jobsDone * (barDiff)
+
+		for i := 0; i < barCurrent; i++ {
+			fmt.Print("#")
+		}
+
+		for i := barCurrent; i < barMax; i++ {
+			fmt.Print(".")
+		}
+		time.Sleep(300 * time.Millisecond)
+		if jobsDone != jobsMax {
+			fmt.Print("\033[2K\r")
+		}
 	}
 }
