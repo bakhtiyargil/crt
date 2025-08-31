@@ -169,6 +169,7 @@ func loadingAnimation(jobsDone, jobsMax int) {
 		}
 		time.Sleep(300 * time.Millisecond)
 		if jobsDone != jobsMax {
+			//clear stdout
 			fmt.Print("\033[2K\r")
 		}
 	}
