@@ -6,17 +6,16 @@ import (
 	"fmt"
 	"github.com/spf13/cobra"
 	"os"
+	"path/filepath"
 	"software.sslmate.com/src/go-pkcs12"
 	"time"
 )
 
 const (
-	UrlFlag             = "url"
-	SystemFlag          = "system"
-	JavaHomeFlag        = "java-home"
-	CacertsPathFlag     = "cacertspath"
-	CacertsPassFlag     = "cacertspass"
-	JavaHomeCacertsPath = "$JAVA_HOME/lib/security/cacerts"
+	UrlFlag         = "url"
+	JavaHomeFlag    = "java-home"
+	CacertsPathFlag = "cacertspath"
+	CacertsPassFlag = "cacertspass"
 )
 
 var importCmd = &cobra.Command{
@@ -43,15 +42,11 @@ func addFlags() {
 
 	importCmd.Flags().Bool(JavaHomeFlag, false,
 		"use the default $JAVA_HOME path to specify the cacerts file.")
-
-	importCmd.Flags().Bool(SystemFlag, false,
-		"use the default system truststore to store certificates.")
 }
 
 func importFunction() func(cmd *cobra.Command, args []string) {
 	return func(cmd *cobra.Command, args []string) {
 		url, _ := cmd.Flags().GetString(UrlFlag)
-		system, _ := cmd.Flags().GetBool(SystemFlag)
 		javaHome, _ := cmd.Flags().GetBool(JavaHomeFlag)
 		cacertpath, _ := cmd.Flags().GetString(CacertsPathFlag)
 		cacertpass, _ := cmd.Flags().GetString(CacertsPassFlag)
@@ -66,7 +61,7 @@ func importFunction() func(cmd *cobra.Command, args []string) {
 		}
 		if javaHome {
 			if len(cacertpath) == 0 {
-				cacertpath = JavaHomeCacertsPath
+				cacertpath = getJavaCacertsPath()
 			} else {
 				fmt.Println("Provide either cacertspath or java-home flag, not both")
 				return
@@ -75,12 +70,11 @@ func importFunction() func(cmd *cobra.Command, args []string) {
 			fmt.Println("Provide either cacertspath or java-home flag")
 			return
 		}
-
-		AddCertificate(url, cacertpath, system, cacertpass)
+		addCertificate(url, cacertpath, cacertpass)
 	}
 }
 
-func AddCertificate(hostPort string, cacertpath string, system bool, password string) {
+func addCertificate(hostPort string, cacertpath string, password string) {
 	conf := &tls.Config{}
 	conn, err := tls.Dial("tcp", hostPort, conf)
 	errAndExit("error in dial TCP: %v\n", err)
@@ -101,16 +95,7 @@ func AddCertificate(hostPort string, cacertpath string, system bool, password st
 	if err != nil {
 		errAndExit("cannot decode PKCS12 truststore: %v\n", err)
 	}
-
 	fmt.Printf("Existing truststore has %d certs\n", len(existingCerts))
-
-	if system {
-		rootCAs, err := x509.SystemCertPool()
-		errAndExit("Error getting system certificate pool: %v\n", err)
-		for _, cert := range certs {
-			rootCAs.AddCert(cert)
-		}
-	}
 
 	for i, newCert := range certs {
 		if !containsCert(existingCerts, newCert) {
@@ -173,4 +158,13 @@ func loadingAnimation(jobsDone, jobsMax int) {
 			fmt.Print("\033[2K\r")
 		}
 	}
+}
+
+func getJavaCacertsPath() string {
+	javaHome := os.Getenv("JAVA_HOME")
+	if javaHome == "" {
+		fmt.Println("JAVA_HOME not set")
+		os.Exit(1)
+	}
+	return filepath.Join(javaHome, "lib", "security", "cacerts")
 }
